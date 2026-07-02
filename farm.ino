@@ -31,6 +31,28 @@ int chk;
 float hum; 
 float temp; 
 
+
+struct CropSettings {
+  String name;
+  float minTemp;
+  float maxTemp;
+  int minSoil;
+  int maxSoil;
+ unsigned long irrigationInterval;
+  unsigned long irrigationDuration; 
+};
+
+
+CropSettings crops[] = {
+  {"Pepper",    18, 30, 40, 70, 180000, 10000},
+  {"Lettuce",   10, 22, 60, 80, 180000, 5000},
+  {"Red Onion", 13, 24, 30, 50, 180000, 7000},
+  {"Tomato",    20, 30, 50, 70, 180000, 12000},
+  {"Okra",      22, 35, 45, 65, 180000, 10000}
+};
+
+CropSettings currentCrop = crops[0];
+
 void AlertState(int length){
   for(int i = 0; i < length; i++){
     digitalWrite(BUZZER_STATE, HIGH);
@@ -61,7 +83,11 @@ class MyCallbacks: public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic* pChar) override {
     
     String value = pChar->getValue();
-  
+
+    Serial.print("value: ");
+    Serial.println(value);
+
+
        if(value == "PUMP1_ON"){
         digitalWrite(PUMP1_RELAY_PIN,LOW);
         digitalWrite(BUZZER_STATE,HIGH);
@@ -102,23 +128,33 @@ class MyCallbacks: public BLECharacteristicCallbacks {
       switch(num) {
         case 1:
           Serial.println("🌱 طماطم");
-          digitalWrite(PUMP1_RELAY_PIN, HIGH);
+          currentCrop = crops[num-1];
+          Serial.println(currentCrop.name);
           break;
         case 2:
           Serial.println("🥔 بطاطس");
-          digitalWrite(PUMP1_RELAY_PIN, LOW);
+          currentCrop = crops[num-1];
+          Serial.println(currentCrop.name);
           break;
         case 3:
           Serial.println("🧅 بصل");
+           currentCrop = crops[num-1];
+          Serial.println(currentCrop.name);
           break;
         case 4:
           Serial.println("🥬 خس");
+          currentCrop = crops[num-1];
+          Serial.println(currentCrop.name);
           break;
         case 5:
           Serial.println("🥕 جزر");
+          currentCrop = crops[num-1];
+          Serial.println(currentCrop.name);
           break;
         case 6:
           Serial.println("🌶️ فلفل");
+          currentCrop = crops[num-1];
+          Serial.println(currentCrop.name);
           break;
         default:
           Serial.println("❌ Unknown");
@@ -127,18 +163,21 @@ class MyCallbacks: public BLECharacteristicCallbacks {
   }
 };
 
+unsigned long lastIrrigationTime = 0;
+bool irrigationRunning = false;
+unsigned long irrigationStartTime = 0;
 
 void setup() {
   Serial.begin(115200);
-
 pinMode(PUMP1_RELAY_PIN, OUTPUT);
 pinMode(PUMP2_RELAY_PIN, OUTPUT);
 pinMode(LAMP_RELAY_PIN, OUTPUT);
+
+digitalWrite(PUMP1_RELAY_PIN, HIGH);
+digitalWrite(PUMP2_RELAY_PIN, HIGH);
+digitalWrite(LAMP_RELAY_PIN, HIGH);
   pinMode(CONECTION_LED, OUTPUT);
-  pinMode(BUZZER_STATE, OUTPUT);
-  digitalWrite(PUMP1_RELAY_PIN, HIGH);       
-  digitalWrite(PUMP2_RELAY_PIN, HIGH);       
-  digitalWrite(LAMP_RELAY_PIN, HIGH);       
+  pinMode(BUZZER_STATE, OUTPUT);   
   pinMode(TRIG, OUTPUT);
   pinMode(ECHO, INPUT);
   dht.setup(DHTPIN, DHTesp::DHT22);
@@ -187,7 +226,7 @@ digitalWrite(TRIG, LOW);
 float distance = -1;
 int waterPercent = 0;
 
-long duration = pulseIn(ECHO, HIGH, 7000);
+long duration = pulseIn(ECHO, HIGH, 30000);
 
 if(duration == 0){
   Serial.println("⚠️ No echo received");
@@ -238,11 +277,15 @@ else{
 
   int soli = analogRead(SOLI_SENSOR_PIN);
 
-    Serial.println("soli => ");
+  int soilPercent = map(soli, 4095, 0, 0, 100);
+
+soilPercent = constrain(soilPercent, 0, 100);
+
+    Serial.print("soli => ");
     Serial.println(soli);
 
   int isGas = analogRead(GasSensorPin);
-  int gas = 600;
+  int gas = 1100;
   if(isGas > gas){
     Serial.println("Gas detected");
 
@@ -265,13 +308,26 @@ else{
 
     
 
-  Serial.println("Gas value => ");
-  Serial.println(isGas);
+  Serial.print("Gas value => ");
+  Serial.print(isGas);
   Serial.println("waterPercent value => ");
-  Serial.println(waterPercent);
+  Serial.print(waterPercent);
+  Serial.println("Distance: ");
+  Serial.print(distance);
+  Serial.print(" cm");
 
     hum = dht.getHumidity();
   temp = dht.getTemperature();
+
+  if(temp < currentCrop.minTemp){
+ Serial.println(" LOW TEMP - Lamp ON");
+
+    digitalWrite(LAMP_RELAY_PIN, LOW);
+
+  }else if(temp >= currentCrop.maxTemp){
+
+    digitalWrite(LAMP_RELAY_PIN, HIGH);
+}
 
 if(deviceConnected && pCharacteristic != NULL){
     
@@ -294,5 +350,32 @@ if(deviceConnected && pCharacteristic != NULL){
 //     delay(1000);
 //     digitalWrite(PUMP1_RELAY_PIN, LOW);
 
+unsigned long currentMillis = millis();
+
+if (
+    !irrigationRunning &&
+    (currentMillis - lastIrrigationTime >= currentCrop.irrigationInterval)
+   ) {
+
+    Serial.println("PUMP ON");
+
+    digitalWrite(PUMP1_RELAY_PIN, LOW);
+
+    irrigationRunning = true;
+    irrigationStartTime = currentMillis;
+}
+
+if (
+    irrigationRunning &&
+    (currentMillis - irrigationStartTime >= currentCrop.irrigationDuration)
+   ) {
+
+    Serial.println("PUMP OFF");
+
+    digitalWrite(PUMP1_RELAY_PIN, HIGH);
+
+    irrigationRunning = false;
+    lastIrrigationTime = currentMillis;
+}
   delay(2000); 
 }
